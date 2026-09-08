@@ -1,311 +1,357 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>東京之旅 ✈️ 雲端同步手冊</title>
+    <title>Tokyo Trip Master</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
     <style>
-        :root { --primary-blue: #003366; --bg-color: #f0f2f5; }
-        body { background-color: var(--bg-color); font-family: 'Segoe UI', system-ui, sans-serif; padding-bottom: 50px; }
-        .nav-tabs { background: white; padding: 10px 10px 0 10px; border-bottom: none; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        .nav-link.active { color: var(--primary-blue) !important; border-bottom: 3px solid var(--primary-blue) !important; background: none !important; font-weight: bold;}
+        :root { --primary: #003366; --bg: #f4f7f9; }
+        body { background-color: var(--bg); font-family: system-ui, -apple-system, sans-serif; }
+        
+        .nav-tabs { background: white; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border: none; }
+        .nav-link { color: #666; font-weight: 600; border: none !important; padding: 15px 10px; font-size: 0.85rem; }
+        .nav-link.active { color: var(--primary) !important; border-bottom: 3px solid var(--primary) !important; background: none !important; }
+
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; }
         .receipt-preview { width: 45px; height: 45px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid #ddd; }
-        .member-badge { display: inline-flex; align-items: center; background: #e9ecef; padding: 4px 10px; border-radius: 50px; margin: 3px; font-size: 0.85em; font-weight: 600; }
-        #schedule-viewport { width: 100%; height: 75vh; border: 1px solid #ddd; border-radius: 12px; background: white; }
-        .sync-status { font-size: 0.75em; padding: 2px 8px; border-radius: 10px; }
-        .status-online { background: #d4edda; color: #155724; }
-        .status-syncing { background: #fff3cd; color: #856404; }
-        .local-tag { background: #e2e3e5; color: #383d41; font-size: 0.7em; padding: 2px 5px; border-radius: 4px; margin-left: 5px; }
+        .member-badge { display: inline-flex; align-items: center; background: #e9ecef; padding: 5px 12px; border-radius: 50px; margin: 3px; font-size: 0.8em; font-weight: 600; }
+        .remove-member { color: #dc3545; cursor: pointer; margin-left: 8px; }
+        
+        #schedule-viewer { width: 100%; height: 70vh; border: 1px solid #ddd; border-radius: 8px; background: white; }
+
+        /* Checklist Styles */
+        .category-section { background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 15px; height: 100%; }
+        .checklist-item { 
+            background: white; 
+            border: 1px solid #e0e0e0; 
+            border-radius: 6px; 
+            padding: 10px; 
+            margin-bottom: 5px; 
+            display: flex; 
+            align-items: center; 
+            font-size: 0.95rem;
+            user-select: none; /* Prevent text selection during long hold */
+            touch-action: none; /* Helps with mobile dragging */
+        }
+        .checklist-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .checklist-item.checked span { text-decoration: line-through; color: #adb5bd; }
+        .del-check-btn {
+            background: none;
+            border: none;
+            color: #dc3545;
+            font-weight: bold;
+            font-size: 1.2rem;
+            padding: 0 5px;
+            cursor: pointer;
+        }
+        
+        .souv-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px 8px 0 0; cursor: pointer; }
     </style>
 </head>
 <body>
 
-<ul class="nav nav-tabs justify-content-center sticky-top" id="mainTabs" role="tablist">
-    <li class="nav-item"><button class="nav-link active" id="expense-tab" data-bs-toggle="tab" data-bs-target="#expense-content" type="button">💰 支出記帳 (同步)</button></li>
-    <li class="nav-item"><button class="nav-link" id="schedule-tab" data-bs-toggle="tab" data-bs-target="#schedule-content" type="button">📅 每日行程 (同步)</button></li>
-    <li class="nav-item"><button class="nav-link" id="checklist-tab" data-bs-toggle="tab" data-bs-target="#checklist-content" type="button">📋 個人清單 (不同步)</button></li>
+<ul class="nav nav-tabs justify-content-center" id="mainTabs" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#exp-tab">💰 Expenses</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#sch-tab">📅 Schedule</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#chk-tab">📋 My Checklist</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#souv-tab">🎁 Souvenirs</button></li>
 </ul>
 
-<div class="tab-content container mt-4" id="mainTabsContent">
+<div class="tab-content container mt-4">
     
-    <!-- 1. 支出記帳 (Firebase 同步) -->
-    <div class="tab-pane fade show active" id="expense-content" role="tabpanel">
+    <!-- 1. EXPENSES -->
+    <div class="tab-pane fade show active" id="exp-tab">
         <div class="row">
             <div class="col-lg-4">
                 <div class="card p-3">
-                    <h6>👥 成員 <span id="sync-status" class="sync-status status-online">● 雲端已同步</span></h6>
+                    <h6 class="fw-bold">1. Members (Synced)</h6>
                     <div class="input-group mb-2">
-                        <input type="text" id="newMemberName" class="form-control" placeholder="姓名">
-                        <button class="btn btn-primary" onclick="addMember()">新增</button>
+                        <input type="text" id="newMemberName" class="form-control" placeholder="Name">
+                        <button class="btn btn-primary btn-sm" onclick="addMember()">Add</button>
                     </div>
                     <div id="membersList"></div>
                 </div>
-                
                 <div class="card p-3">
-                    <h6>💸 新增消費</h6>
-                    <input type="text" id="exp-desc" class="form-control mb-2" placeholder="項目描述">
+                    <h6 class="fw-bold">2. Add Payment</h6>
+                    <input type="text" id="exp-desc" class="form-control mb-2" placeholder="Description">
                     <div class="row g-2 mb-2">
-                        <div class="col-7"><input type="number" id="exp-amount" class="form-control" placeholder="金額"></div>
-                        <div class="col-5">
+                        <div class="col-6"><input type="number" id="exp-amount" class="form-control" placeholder="Amt"></div>
+                        <div class="col-6">
                             <select id="sourceCurrency" class="form-select">
-                                <option value="JPY">JPY ¥</option>
-                                <option value="KRW">KRW ₩</option>
-                                <option value="TWD">TWD $</option>
-                                <option value="HKD">HKD $</option>
+                                <option value="JPY">JPY (¥)</option>
+                                <option value="KRW">KRW (₩)</option>
+                                <option value="TWD">TWD (NT$)</option>
+                                <option value="HKD">HKD ($)</option>
                             </select>
                         </div>
                     </div>
-                    <select id="payerSelect" class="form-select mb-2"><option value="">選擇付款人</option></select>
+                    <select id="payerSelect" class="form-select mb-2"></select>
                     <input type="file" id="photoInput" class="form-control mb-2" accept="image/*">
-                    <button onclick="addExpense()" id="addExpBtn" class="btn btn-success w-100 fw-bold">同步支出</button>
+                    <button onclick="addExpense()" id="addExpBtn" class="btn btn-success w-100 fw-bold">Save Expense</button>
                 </div>
             </div>
-
             <div class="col-lg-8">
                 <div class="card p-3">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h6 class="m-0">📊 每人已付統計</h6>
-                        <select id="targetCurrency" class="form-select form-select-sm" style="width: 80px;" onchange="recalculateAll()">
-                            <option value="HKD">HKD</option><option value="TWD">TWD</option><option value="JPY">JPY</option>
+                    <div class="d-flex justify-content-between mb-2">
+                        <h6 class="fw-bold">Summary</h6>
+                        <select id="targetCurrency" class="form-select form-select-sm w-auto" onchange="recalculateAll()">
+                            <option value="HKD">To HKD</option>
+                            <option value="JPY">To JPY</option>
                         </select>
                     </div>
-                    <div id="summaryGrid" class="row mt-3"></div>
+                    <div id="summaryGrid" class="row g-2"></div>
                 </div>
-                
-                <div class="card">
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0 text-nowrap">
-                            <thead class="table-light">
-                                <tr><th>描述</th><th>付款</th><th>原始</th><th id="targetColHeader">HKD</th><th>圖</th><th></th></tr>
-                            </thead>
-                            <tbody id="expenseTableBody"></tbody>
-                        </table>
-                    </div>
+                <div class="card overflow-auto">
+                    <table class="table table-hover align-middle mb-0" style="font-size: 0.9rem;">
+                        <tbody id="expenseTableBody"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 2. 行程規劃 (Firebase 同步) -->
-    <div class="tab-pane fade" id="schedule-content" role="tabpanel">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h3 class="fw-bold">📅 旅遊行程 (共享)</h3>
-            <button class="btn btn-sm btn-primary" onclick="document.getElementById('scheduleFile').click()">上傳/更新 HTML</button>
-            <input type="file" id="scheduleFile" hidden accept=".html" onchange="uploadSchedule(this)">
+    <!-- 2. SCHEDULE -->
+    <div class="tab-pane fade" id="sch-tab">
+        <div class="card p-3">
+            <div class="d-flex justify-content-between mb-2">
+                <h5 class="mb-0">Group Schedule (Synced)</h5>
+                <input type="file" id="uploadSchedule" hidden onchange="handleScheduleUpload(this)">
+                <label for="uploadSchedule" class="btn btn-primary btn-sm">Update Schedule</label>
+            </div>
+            <iframe id="schedule-viewer"></iframe>
         </div>
-        <iframe id="schedule-viewport" style="display:none;"></iframe>
     </div>
 
-    <!-- 3. 檢查清單 (LocalStorage 本地保存，不進行同步) -->
-    <div class="tab-pane fade" id="checklist-content" role="tabpanel">
-        <div class="d-flex align-items-center mb-3">
-            <h3 class="fw-bold m-0">📋 個人行李清單</h3>
-            <span class="local-tag">僅存在本手機</span>
-        </div>
-        <div class="row g-4">
+    <!-- 3. CHECKLIST -->
+    <div class="tab-pane fade" id="chk-tab">
+        <div class="row g-3">
             <div class="col-md-6">
-                <div class="card p-3">
-                    <h6 class="text-success">✅ 必要物品</h6>
+                <div class="category-section">
+                    <h6 class="fw-bold text-success">✓ Necessary (Hold to Reorder)</h6>
                     <div id="necessary-list"></div>
                 </div>
             </div>
             <div class="col-md-6">
-                <div class="card p-3">
-                    <h6 class="text-danger">❓ 考慮物品</h6>
+                <div class="category-section">
+                    <h6 class="fw-bold text-danger">✕ Maybe (Hold to Reorder)</h6>
                     <div id="unnecessary-list"></div>
                 </div>
             </div>
         </div>
         <div class="card mt-3 p-3">
             <div class="input-group">
-                <input type="text" id="new-check-item" class="form-control" placeholder="新增個人物品...">
-                <button class="btn btn-primary" onclick="addChecklistItem()">新增</button>
+                <input type="text" id="new-check-item" class="form-control" placeholder="Add custom item...">
+                <button class="btn btn-primary" onclick="addChecklistItem()">Add</button>
+                <button class="btn btn-outline-danger" onclick="clearCheckedItems()">Delete Checked</button>
             </div>
         </div>
     </div>
+
+    <!-- 4. SOUVENIRS -->
+    <div class="tab-pane fade" id="souv-tab">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card p-3">
+                    <h6>Add Souvenir Idea (Synced)</h6>
+                    <input type="text" id="souv-name" class="form-control mb-2" placeholder="Item">
+                    <textarea id="souv-notes" class="form-control mb-2" placeholder="Notes..."></textarea>
+                    <input type="file" id="souv-photo" class="form-control mb-2">
+                    <button class="btn btn-success w-100" onclick="addSouvenir()">Add for Group</button>
+                </div>
+            </div>
+            <div class="col-md-8"><div id="souvenirGrid" class="row g-2"></div></div>
+        </div>
+    </div>
+
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 
 <script>
-    // Firebase 配置
+    // FIREBASE SETUP
     const firebaseConfig = {
-        apiKey: "AIzaSyC2yky6OKfhJlglZOapVga63-PRYeydf_c",
-        authDomain: "tokyo-trip-sep.firebaseapp.com",
-        databaseURL: "https://tokyo-trip-sep-default-rtdb.firebaseio.com",
-        projectId: "tokyo-trip-sep",
-        storageBucket: "tokyo-trip-sep.firebasestorage.app",
-        messagingSenderId: "130331812288",
-        appId: "1:130331812288:web:e89e8458848db1be73a825"
+      apiKey: "AIzaSyC2yky6OKfhJlglZOapVga63-PRYeydf_c",
+      authDomain: "tokyo-trip-sep.firebaseapp.com",
+      databaseURL: "https://tokyo-trip-sep-default-rtdb.firebaseio.com",
+      projectId: "tokyo-trip-sep",
+      storageBucket: "tokyo-trip-sep.firebasestorage.app",
+      messagingSenderId: "130331812288",
+      appId: "1:130331812288:web:e89e8458848db1be73a825"
     };
-
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    const tripRef = db.ref('shared_trip_data');
 
-    // --- 全局狀態 ---
-    let cloudState = { members: [], expenses: [], scheduleHtml: "" };
-    let localChecklist = JSON.parse(localStorage.getItem('my_private_checklist')) || { necessary: ["護照"], unnecessary: [] };
+    let members = [];
+    let expenses = [];
+    let souvenirs = [];
 
-    window.onload = () => {
-        renderChecklistUI();
-    };
-
-    // --- 雲端監聽 (支出 & 行程) ---
-    tripRef.on('value', (snapshot) => {
-        const val = snapshot.val();
-        if (val) {
-            cloudState = val;
-            updateCloudUI();
-            setSyncStatus("status-online", "● 雲端已同步");
-        }
+    // SYNC FROM FIREBASE
+    db.ref('trip_data').on('value', (snap) => {
+        const data = snap.val() || {};
+        members = data.members || ["Alice", "Bob"];
+        expenses = data.expenses || [];
+        souvenirs = data.souvenirs || [];
+        document.getElementById('schedule-viewer').srcdoc = data.schedule_html || "<p style='padding:20px;'>No schedule uploaded.</p>";
+        renderMembers(); refreshExpenseUI(); renderSouvenirs();
     });
 
-    function pushCloudData() {
-        setSyncStatus("status-syncing", "○ 同步中...");
-        tripRef.set(cloudState);
-    }
+    function pushData() { db.ref('trip_data').update({ members, expenses, souvenirs }); }
 
-    function setSyncStatus(cls, txt) {
-        const el = document.getElementById('sync-status');
-        if(el) { el.className = "sync-status " + cls; el.innerText = txt; }
+    // EXPENSES & OTHERS (Omitted for brevity, keep your original functions)
+    function renderMembers() {
+        document.getElementById('membersList').innerHTML = members.map((m, i) => `<span class="member-badge">${m}<span class="remove-member" onclick="removeMember(${i})">&times;</span></span>`).join('');
+        document.getElementById('payerSelect').innerHTML = members.map(m => `<option value="${m}">${m}</option>`).join('');
     }
-
-    // --- 支出邏輯 ---
-    window.addMember = function() {
-        const name = document.getElementById('newMemberName').value.trim();
-        if (name && (!cloudState.members || !cloudState.members.includes(name))) {
-            if(!cloudState.members) cloudState.members = [];
-            cloudState.members.push(name);
-            document.getElementById('newMemberName').value = '';
-            pushCloudData();
+    function addMember() { const n = document.getElementById('newMemberName').value.trim(); if(n){members.push(n); pushData();} }
+    function removeMember(i) { members.splice(i, 1); pushData(); }
+    async function addExpense() {
+        const d = document.getElementById('exp-desc').value, a = parseFloat(document.getElementById('exp-amount').value), s = document.getElementById('sourceCurrency').value, t = document.getElementById('targetCurrency').value, p = document.getElementById('payerSelect').value, ph = document.getElementById('photoInput').files[0];
+        if(!d || isNaN(a)) return;
+        const res = await fetch(`https://open.er-api.com/v6/latest/${s}`);
+        const rData = await res.json();
+        const conv = (a * rData.rates[t]).toFixed(2);
+        const b64 = ph ? await toB64(ph) : "";
+        expenses.push({ desc: d, amount: a, sourceCurr: s, payer: p, convertedAmount: conv, targetCurr: t, photo: b64 });
+        pushData();
+        document.getElementById('exp-desc').value=''; document.getElementById('exp-amount').value='';
+    }
+    function refreshExpenseUI() {
+        const t = document.getElementById('targetCurrency').value;
+        document.getElementById('expenseTableBody').innerHTML = expenses.map((e, i) => `<tr><td><b>${e.desc}</b><br><small>${e.payer}</small></td><td class='text-end'>${e.convertedAmount} ${t}<br><small class='text-muted'>${e.amount} ${e.sourceCurr}</small></td><td>${e.photo ? `<img src="${e.photo}" class="receipt-preview" onclick="viewImg('${e.photo}')">` : '-'}</td><td><button class='btn btn-sm text-danger' onclick='delExp(${i})'>&times;</button></td></tr>`).reverse().join('');
+        const totals = {}; members.forEach(m => totals[m] = 0);
+        expenses.forEach(e => { if(totals[e.payer] !== undefined) totals[e.payer] += parseFloat(e.convertedAmount); });
+        document.getElementById('summaryGrid').innerHTML = members.map(m => `<div class='col-6 col-md-3'><div class='card p-2 text-center small'><div class='text-muted'>${m}</div><div class='fw-bold'>${totals[m].toLocaleString()}</div></div></div>`).join('');
+    }
+    function delExp(i) { expenses.splice(expenses.length-1-i, 1); pushData(); }
+    async function recalculateAll() {
+        const t = document.getElementById('targetCurrency').value;
+        for (let e of expenses) {
+            const res = await fetch(`https://open.er-api.com/v6/latest/${e.sourceCurr}`);
+            const d = await res.json(); e.convertedAmount = (e.amount * d.rates[t]).toFixed(2); e.targetCurr = t;
         }
+        pushData();
     }
-
-    window.addExpense = async function() {
-        const desc = document.getElementById('exp-desc').value;
-        const amount = parseFloat(document.getElementById('exp-amount').value);
-        const source = document.getElementById('sourceCurrency').value;
-        const target = document.getElementById('targetCurrency').value;
-        const payer = document.getElementById('payerSelect').value;
-        const photoFile = document.getElementById('photoInput').files[0];
-
-        if (!desc || isNaN(amount) || !payer) return alert("請輸入完整資訊");
-
-        const btn = document.getElementById('addExpBtn');
-        btn.disabled = true;
-
-        try {
-            const res = await fetch(`https://open.er-api.com/v6/latest/${source}`);
-            const data = await res.json();
-            const converted = (amount * data.rates[target]).toFixed(2);
-            let photo = photoFile ? await convertBase64(photoFile) : "";
-
-            if(!cloudState.expenses) cloudState.expenses = [];
-            cloudState.expenses.push({ id: Date.now(), desc, amount, source, payer, convertedAmount: converted, targetCurr: target, photo });
-            pushCloudData();
-            document.getElementById('exp-desc').value = '';
-            document.getElementById('exp-amount').value = '';
-        } catch (e) { alert("匯率轉換失敗"); }
-        btn.disabled = false;
+    function handleScheduleUpload(input) {
+        const rd = new FileReader();
+        rd.onload = (e) => db.ref('trip_data').update({ schedule_html: e.target.result });
+        rd.readAsText(input.files[0]);
     }
-
-    window.recalculateAll = async function() {
-        const target = document.getElementById('targetCurrency').value;
-        if(!cloudState.expenses) return;
-        for (let exp of cloudState.expenses) {
-            const res = await fetch(`https://open.er-api.com/v6/latest/${exp.source}`);
-            const data = await res.json();
-            exp.convertedAmount = (exp.amount * data.rates[target]).toFixed(2);
-            exp.targetCurr = target;
-        }
-        pushCloudData();
+    async function addSouvenir() {
+        const n = document.getElementById('souv-name').value, nt = document.getElementById('souv-notes').value, ph = document.getElementById('souv-photo').files[0];
+        if(!n) return;
+        const b64 = ph ? await toB64(ph) : "";
+        souvenirs.push({ name: n, notes: nt, photo: b64, bought: false });
+        pushData();
+        document.getElementById('souv-name').value=''; document.getElementById('souv-notes').value='';
     }
+    function renderSouvenirs() {
+        document.getElementById('souvenirGrid').innerHTML = souvenirs.map((s, i) => `<div class='col-6 col-md-4'><div class='card'>${s.photo ? `<img src="${s.photo}" class="souv-img" onclick="viewImg('${s.photo}')">` : '<div class="bg-light p-4 text-center small">No Pic</div>'}<div class='p-2 small'><b>${s.name}</b><br>${s.notes}<br><div class='mt-1'><input type='checkbox' ${s.bought?'checked':''} onchange='toggleSouv(${i})'> Done <button class='btn btn-sm text-danger float-end py-0' onclick='delSouv(${i})'>🗑</button></div></div></div></div>`).join('');
+    }
+    function toggleSouv(i) { souvenirs[i].bought = !souvenirs[i].bought; pushData(); }
+    function delSouv(i) { souvenirs.splice(i, 1); pushData(); }
 
-    // --- 行程邏輯 ---
-    window.uploadSchedule = function(input) {
-        const file = input.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            cloudState.scheduleHtml = e.target.result;
-            pushCloudData();
+    // --- FIXED CHECKLIST LOGIC ---
+    let checklistData = JSON.parse(localStorage.getItem('trip_checklist_final'));
+
+    if (!checklistData) {
+        const nec = ["Hair dryer", "Tableware", "Water bottle", "Power bank", "Charging cable", "Electric toothbrush", "Dental floss", "Razor", "Face wash", "Medicine", "Universal plug", "Eye mask", "Insurance", "Mask", "Sanitizing wipes", "Adapters", "Thermal pants", "Towel", "Neck pillow"];
+        const unn = ["Tea bag", "Plastic bags", "Shopping bag", "Fan", "Scissors", "Hat/cap", "Walkie talkie", "iPad", "Vest", "Slippers", "Selfie stick", "T-shirt/Shorts", "Swimwear"];
+        checklistData = {
+            necessary: nec.map(t => ({text: t, checked: false})),
+            unnecessary: unn.map(t => ({text: t, checked: false}))
         };
-        reader.readAsText(file);
     }
 
-    // --- 本地清單邏輯 (不 push 到 Firebase) ---
-    window.addChecklistItem = function() {
-        const val = document.getElementById('new-check-item').value.trim();
-        if(val) {
-            localChecklist.necessary.push(val);
-            document.getElementById('new-check-item').value = '';
-            saveLocalChecklist();
+    function renderChecklist() {
+        const nL = document.getElementById('necessary-list');
+        const uL = document.getElementById('unnecessary-list');
+        nL.innerHTML = ''; uL.innerHTML = '';
+
+        checklistData.necessary.forEach((item, i) => nL.appendChild(createCheckEl(item, 'necessary', i)));
+        checklistData.unnecessary.forEach((item, i) => uL.appendChild(createCheckEl(item, 'unnecessary', i)));
+        
+        localStorage.setItem('trip_checklist_final', JSON.stringify(checklistData));
+    }
+
+    function createCheckEl(item, cat, i) {
+        const div = document.createElement('div');
+        div.className = `checklist-item ${item.checked ? 'checked' : ''}`;
+        
+        // Use standard checkbox with onchange
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = item.checked;
+        checkbox.onchange = () => {
+            checklistData[cat][i].checked = checkbox.checked;
+            renderChecklist();
+        };
+
+        const span = document.createElement('span');
+        span.className = 'flex-grow-1 ms-2';
+        span.innerText = item.text;
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'del-check-btn';
+        delBtn.innerHTML = '&times;';
+        delBtn.onclick = () => {
+            checklistData[cat].splice(i, 1);
+            renderChecklist();
+        };
+
+        div.appendChild(checkbox);
+        div.appendChild(span);
+        div.appendChild(delBtn);
+        return div;
+    }
+
+    function addChecklistItem() {
+        const v = document.getElementById('new-check-item').value.trim();
+        if(v) {
+            checklistData.necessary.push({text: v, checked: false});
+            document.getElementById('new-check-item').value='';
+            renderChecklist();
         }
     }
 
-    window.deleteCheckItem = function(cat, i) {
-        localChecklist[cat].splice(i, 1);
-        saveLocalChecklist();
+    function clearCheckedItems() {
+        checklistData.necessary = checklistData.necessary.filter(item => !item.checked);
+        checklistData.unnecessary = checklistData.unnecessary.filter(item => !item.checked);
+        renderChecklist();
     }
 
-    function saveLocalChecklist() {
-        localStorage.setItem('my_private_checklist', JSON.stringify(localChecklist));
-        renderChecklistUI();
-    }
+    // HELPERS
+    function toB64(f) { return new Promise(r => { const rd = new FileReader(); rd.onload = () => r(rd.result); rd.readAsDataURL(f); }); }
+    function viewImg(s) { const w = window.open(); w.document.write(`<img src="${s}" style="max-width:100%">`); }
+    
+    // SORTABLE CONFIG (LONG HOLD FIX)
+    const sortParams = { 
+        group: 'chk', 
+        animation: 150,
+        delay: 500, // HOLD FOR 500ms TO START DRAGGING
+        delayOnTouchOnly: false, // WORKS ON MOUSE TOO
+        onEnd: (e) => {
+            const f = e.from.id.includes('necessary') ? 'necessary' : 'unnecessary';
+            const t = e.to.id.includes('necessary') ? 'necessary' : 'unnecessary';
+            const item = checklistData[f].splice(e.oldIndex, 1)[0];
+            checklistData[t].splice(e.newIndex, 0, item);
+            renderChecklist();
+        }
+    };
 
-    // --- UI 更新 ---
-    function updateCloudUI() {
-        // 更新付款人選單
-        const pSelect = document.getElementById('payerSelect');
-        const cur = pSelect.value;
-        pSelect.innerHTML = '<option value="">選擇付款人</option>' + (cloudState.members || []).map(m => `<option value="${m}">${m}</option>`).join('');
-        pSelect.value = cur;
+    Sortable.create(document.getElementById('necessary-list'), sortParams);
+    Sortable.create(document.getElementById('unnecessary-list'), sortParams);
 
-        document.getElementById('membersList').innerHTML = (cloudState.members || []).map(m => `<span class="member-badge">${m}</span>`).join('');
-
-        // 更新表格
-        const target = document.getElementById('targetCurrency').value;
-        document.getElementById('targetColHeader').innerText = target;
-        document.getElementById('expenseTableBody').innerHTML = (cloudState.expenses || []).map((exp, i) => `
-            <tr>
-                <td class="fw-bold">${exp.desc}</td>
-                <td><span class="badge bg-light text-dark border">${exp.payer}</span></td>
-                <td><small>${exp.amount} ${exp.source}</small></td>
-                <td class="text-primary fw-bold">${exp.convertedAmount}</td>
-                <td>${exp.photo ? `<img src="${exp.photo}" class="receipt-preview" onclick="viewImg('${exp.photo}')">` : '-'}</td>
-                <td><button class="btn btn-sm text-danger" onclick="deleteExp(${i})">🗑</button></td>
-            </tr>
-        `).reverse().join('');
-
-        // 統計摘要
-        const totals = {};
-        (cloudState.members || []).forEach(m => totals[m] = 0);
-        (cloudState.expenses || []).forEach(e => { if(totals[e.payer] !== undefined) totals[e.payer] += parseFloat(e.convertedAmount); });
-        document.getElementById('summaryGrid').innerHTML = (cloudState.members || []).map(m => `
-            <div class="col-6 col-md-4 mb-2"><div class="card p-2 text-center bg-white border"><small>${m}</small><div class="fw-bold">${totals[m].toLocaleString()}</div></div></div>
-        `).join('');
-
-        // 行程
-        const iframe = document.getElementById('schedule-viewport');
-        if(cloudState.scheduleHtml) { iframe.style.display = "block"; iframe.srcdoc = cloudState.scheduleHtml; }
-    }
-
-    function renderChecklistUI() {
-        document.getElementById('necessary-list').innerHTML = (localChecklist.necessary || []).map((t, i) => `
-            <div class="d-flex justify-content-between border-bottom py-1"><span><input type="checkbox"> ${t}</span><span class="text-danger" style="cursor:pointer" onclick="deleteCheckItem('necessary', ${i})">&times;</span></div>
-        `).join('');
-        document.getElementById('unnecessary-list').innerHTML = (localChecklist.unnecessary || []).map((t, i) => `
-            <div class="d-flex justify-content-between border-bottom py-1"><span><input type="checkbox"> ${t}</span><span class="text-danger" style="cursor:pointer" onclick="deleteCheckItem('unnecessary', ${i})">&times;</span></div>
-        `).join('');
-    }
-
-    window.deleteExp = function(i) { if(confirm("刪除？")) { cloudState.expenses.splice(cloudState.expenses.length - 1 - i, 1); pushCloudData(); } }
-    function convertBase64(file) { return new Promise(r => { const reader = new FileReader(); reader.onload = () => r(reader.result); reader.readAsDataURL(file); }); }
-    window.viewImg = function(src) { const w = window.open(); w.document.write(`<img src="${src}" style="max-width:100%">`); }
+    renderChecklist();
 </script>
 </body>
 </html>
